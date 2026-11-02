@@ -585,11 +585,11 @@ const Fig = (() => {
     return svg(list.length * 135, cap.length ? 148 : 128, s);
   }
 
-  function confusion(){
+  function confusion(pos = "mass", neg = "normal"){
     const c = (x, y, t, sub, bad) => rect(x, y, 96, 44, bad ? "var(--warn-bg,#fbeee5)" : "var(--ok-bg,#e4f2ea)", {rx: 4}) +
       txt(x + 48, y + 20, t, {bold: true, size: 12, fill: bad ? "var(--warn,#b5541b)" : "var(--ok,#2f7a57)"}) + txt(x + 48, y + 35, sub, {sans: true, size: 9.5});
-    return svg(320, 120, txt(166, 12, "model says mass", {sans: true, size: 10, fill: "var(--muted)"}) + txt(268, 12, "says no mass", {sans: true, size: 10, fill: "var(--muted)"}) +
-      txt(60, 46, "truly mass", {sans: true, size: 10, anchor: "end"}) + txt(60, 96, "truly normal", {sans: true, size: 10, anchor: "end"}) +
+    return svg(320, 120, txt(166, 12, `model says ${pos}`, {sans: true, size: 10, fill: "var(--muted)"}) + txt(268, 12, `says no ${pos}`, {sans: true, size: 10, fill: "var(--muted)"}) +
+      txt(108, 46, `truly ${pos}`, {sans: true, size: 10, anchor: "end"}) + txt(108, 96, `truly ${neg}`, {sans: true, size: 10, anchor: "end"}) +
       c(118, 20, "TP", "caught", false) + c(220, 20, "FN", "missed", true) + c(118, 70, "FP", "false alarm", true) + c(220, 70, "TN", "cleared", false));
   }
 
@@ -613,7 +613,24 @@ const Fig = (() => {
       txt(160, 58, signed ? "ReLU off: negative evidence stays visible" : "ReLU on: negative values become 0", {sans: true, size: 9.5, fill: "var(--muted)"}));
   }
 
-  return {ramp, svg, txt, rect, grid, IMG, kernelDemo, relu, pool, padding, stride, kernelSizes, blocks, rf, chain, bars, heat, panels, confusion, roc, gray};
+  // two score distributions (negatives dashed, positives solid) and a threshold; shift moves the positives left
+  function dist(thr = .5, o = {}){
+    const X = v => 20 + v * 280, H = 70, base = 92, sh = o.shift || 0;
+    const curve = (mu, sd) => Array.from({length: 61}, (_, i) => { const v = i / 60; return [X(v), base - H * Math.exp(-((v - mu) ** 2) / (2 * sd * sd))]; });
+    const path = pts => "M" + pts.map(p => p.map(n => n.toFixed(1)).join(" ")).join(" L");
+    const neg = curve(.3, .11), pos = curve(.68 - sh, .12);
+    const fillPos = path([[X(0), base], ...pos.filter(p => p[0] <= X(thr)), [X(thr), base]]) + " Z";
+    const fillNeg = path([[X(thr), base], ...neg.filter(p => p[0] >= X(thr)), [X(1), base]]) + " Z";
+    return svg(320, 122, `<path d="${fillPos}" style="fill:${o.missCol || "var(--neg,#2e64b0)"};opacity:.35"/><path d="${fillNeg}" style="fill:${POS};opacity:.3"/>` +
+      `<path d="${path(neg)}" style="fill:none;stroke:var(--muted);stroke-width:1.6;stroke-dasharray:4 3"/><path d="${path(pos)}" style="fill:none;stroke:var(--fg);stroke-width:1.8"/>` +
+      `<line x1="${X(thr)}" y1="8" x2="${X(thr)}" y2="${base}" style="stroke:var(--cmu,#a6192e);stroke-width:2"/>` +
+      txt(X(thr) + 4, 16, `threshold ${thr}`, {anchor: "start", sans: true, size: 9.5, fill: "var(--cmu,#a6192e)"}) +
+      `<line x1="${X(0)}" y1="${base}" x2="${X(1)}" y2="${base}" style="stroke:var(--muted)"/>` +
+      txt(X(.5), 106, "model score 0 → 1", {sans: true, size: 9.5, fill: "var(--muted)"}) +
+      txt(X(0), 120, `${o.negLab || "benign"} (dashed) · ${o.posLab || "melanoma"} (solid) · shaded: misses and false alarms`, {anchor: "start", sans: true, size: 9, fill: "var(--muted)"}));
+  }
+
+  return {dist, ramp, POS, NEG, svg, txt, rect, grid, IMG, kernelDemo, relu, pool, padding, stride, kernelSizes, blocks, rf, chain, bars, heat, panels, confusion, roc, gray};
 })();
 </script>
 <script>

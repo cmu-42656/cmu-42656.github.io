@@ -119,6 +119,37 @@ footer{font-size:.78rem;color:var(--muted);display:grid;gap:4px}
 @media (prefers-reduced-motion:no-preference){.big{transition:color .2s}}
 </style>
 
+<style>/* Concept help: a "?" appears on hover or focus; clicking it opens an explanation with a figure. */
+.help-wrap{position:relative;display:inline-flex;max-width:100%;min-width:0}
+.help-host{position:relative}
+.help-host.help-inline{padding-right:26px}
+.help-host.help-inline>.help-q{top:50%;right:0;transform:translateY(-50%)}
+.help-host.help-block>.help-q{top:6px;right:6px}
+.help-wrap>:first-child{flex:1 1 auto;min-width:0}
+.help-q{position:absolute;top:-8px;right:-8px;z-index:3;width:22px;height:22px;padding:0;border-radius:50%;
+  border:1.5px solid var(--accent);background:var(--surface);color:var(--accent);font:600 13px/1 var(--body);
+  display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .12s;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.help-wrap:hover>.help-q,.help-wrap:focus-within>.help-q,.help-host:hover>.help-q,.help-host:focus-within>.help-q,.help-q[aria-expanded="true"]{opacity:1;pointer-events:auto}
+.help-q:hover,.help-q[aria-expanded="true"]{background:var(--accent);color:var(--surface)}
+@media (hover:none){.help-q{opacity:.9;pointer-events:auto;width:24px;height:24px}}
+.help-pop{position:fixed;z-index:50;width:min(380px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;
+  background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:14px 16px 16px;
+  box-shadow:0 10px 30px rgba(0,0,0,.22);display:grid;gap:10px;font-family:var(--body);font-size:.92rem;line-height:1.5}
+.help-pop[hidden]{display:none}
+.help-pop:focus{outline:none}
+.help-pop header{display:flex;align-items:start;justify-content:space-between;gap:10px}
+.help-pop h3{margin:0;font-family:var(--display);font-size:1.08rem}
+.help-pop .help-x{border:none;background:none;color:var(--muted);font-size:1.3rem;line-height:1;padding:0 2px;cursor:pointer}
+.help-pop .help-x:hover{color:var(--fg)}
+.help-pop figure{margin:0;background:var(--tint);border-radius:8px;padding:10px;display:grid;gap:6px}
+.help-pop figure svg{width:100%;height:auto;display:block}
+.help-pop figcaption{font-size:.78rem;color:var(--muted)}
+.help-pop p{margin:0}
+.help-pop .help-take{font-weight:600}
+@media (max-width:560px){.help-pop{left:8px!important;right:8px;top:auto!important;bottom:8px;width:auto;max-height:70vh}}
+@media (prefers-reduced-motion:reduce){.help-q{transition:none}}
+</style>
+
 </head>
 <body>
 <nav class="site-home" aria-label="Site"><a href="./">← All workshops</a> · Workshop 3</nav>
@@ -211,6 +242,313 @@ footer{font-size:.78rem;color:var(--muted);display:grid;gap:4px}
   </footer>
 </main>
 
+<script>/* Concept help for the workshop pages.
+   Help.add(selectorOrFinder, topic) registers controls; Help.attach() wraps each match so a "?" shows on
+   hover or focus. Clicking "?" opens a popover with the topic's text and figure; clicking anywhere else,
+   pressing Escape or the × closes it. A topic is {title, text, take?, fig?} or a function of the element.
+   Figures are inline SVG drawn with the page's color tokens, from the small helpers in Fig. */
+const Help = (() => {
+  const entries = [], topicOf = new WeakMap();
+  let pop, openBtn = null, uid = 0;
+
+  function add(sel, topic){ entries.push([sel, topic]); }
+
+  function attach(){
+    if (!pop) init();
+    for (const [sel, topic] of entries){
+      const els = typeof sel === "function" ? sel() : document.querySelectorAll(sel);
+      for (const el of els){
+        if (!el || el.classList.contains("help-host") || (el.parentElement && el.parentElement.classList.contains("help-wrap"))) continue;
+        const t = typeof topic === "function" ? topic(el) : topic;
+        if (t) wrap(el, t);
+      }
+    }
+  }
+
+  // Controls get a wrapper (a button can't hold another button); labels, headings and panels host the "?" themselves.
+  function wrap(el, t){
+    let w;
+    if (/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(el.tagName)){
+      w = document.createElement("span");
+      w.className = "help-wrap";
+      el.parentNode.insertBefore(w, el);
+      w.appendChild(el);
+    } else {
+      w = el;
+      const inline = getComputedStyle(el).display.startsWith("inline") || /^(B|SPAN|LABEL|H3)$/.test(el.tagName);
+      el.classList.add("help-host", inline ? "help-inline" : "help-block");
+    }
+    const q = document.createElement("button");
+    q.type = "button"; q.className = "help-q"; q.textContent = "?";
+    q.setAttribute("aria-label", "Explain: " + t.title);
+    q.setAttribute("aria-expanded", "false");
+    q.setAttribute("aria-haspopup", "dialog");
+    topicOf.set(q, t);
+    q.addEventListener("click", e => { e.stopPropagation(); e.preventDefault(); openBtn === q ? close() : open(q); });
+    w.appendChild(q);
+  }
+
+  function init(){
+    pop = document.createElement("div");
+    pop.className = "help-pop"; pop.hidden = true; pop.tabIndex = -1;
+    pop.setAttribute("role", "dialog");
+    document.body.appendChild(pop);
+    document.addEventListener("click", e => { if (!pop.hidden && !pop.contains(e.target)) close(false); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && !pop.hidden) close(); });
+    addEventListener("resize", () => { if (!pop.hidden) place(); });
+    addEventListener("scroll", () => { if (!pop.hidden) place(); }, {passive: true});
+  }
+
+  function open(q){
+    if (openBtn) openBtn.setAttribute("aria-expanded", "false");
+    const t = topicOf.get(q), id = "help-t" + (++uid);
+    const fig = t.fig ? `<figure>${t.fig()}${t.cap ? `<figcaption>${t.cap}</figcaption>` : ""}</figure>` : "";
+    pop.innerHTML = `<header><h3 id="${id}">${t.title}</h3><button type="button" class="help-x" aria-label="Close">×</button></header>`
+      + fig + [].concat(t.text).map(p => `<p>${p}</p>`).join("") + (t.take ? `<p class="help-take">${t.take}</p>` : "");
+    pop.setAttribute("aria-labelledby", id);
+    pop.querySelector(".help-x").onclick = () => close();
+    pop.hidden = false; openBtn = q; q.setAttribute("aria-expanded", "true");
+    place(); pop.focus({preventScroll: true});
+  }
+
+  function close(refocus = true){
+    pop.hidden = true;
+    if (openBtn){ openBtn.setAttribute("aria-expanded", "false"); if (refocus && document.contains(openBtn)) openBtn.focus(); }
+    openBtn = null;
+  }
+
+  function place(){
+    if (!openBtn || !document.contains(openBtn)){ close(false); return; }
+    const r = openBtn.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight, m = 12;
+    let x = Math.min(innerWidth - pw - m, Math.max(m, r.left + r.width / 2 - pw / 2));
+    let y = r.bottom + 8;
+    if (y + ph > innerHeight - m) y = Math.max(m, r.top - ph - 8);
+    pop.style.left = x + "px"; pop.style.top = y + "px";
+  }
+
+  return {add, attach};
+})();
+
+/* ---------- figure helpers (inline SVG strings) ---------- */
+const Fig = (() => {
+  const POS = "var(--pos,#c4581a)", NEG = "var(--neg,#2e64b0)";
+  const r1 = v => Math.round(v * 100) / 100;
+  const svg = (w, h, body) => `<svg viewBox="0 0 ${w} ${h}" role="img" xmlns="http://www.w3.org/2000/svg" style="font-family:var(--mono,monospace);font-size:11px">${body}</svg>`;
+  const txt = (x, y, s, o = {}) => `<text x="${x}" y="${y}" text-anchor="${o.anchor || "middle"}" style="fill:${o.fill || "var(--fg)"};font-size:${o.size || 11}px;${o.bold ? "font-weight:600;" : ""}${o.sans ? "font-family:var(--body,sans-serif);" : ""}">${s}</text>`;
+  const rect = (x, y, w, h, fill, o = {}) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${o.rx || 0}" style="fill:${fill};${o.stroke ? `stroke:${o.stroke};stroke-width:${o.sw || 1};` : ""}${o.op != null ? `opacity:${o.op};` : ""}"/>`;
+  const gray = v => { const g = Math.round(Math.max(0, Math.min(1, v)) * 255); return `rgb(${g},${g},${g})`; };
+  const div = (v, m) => { const t = Math.max(-1, Math.min(1, v / (m || 1))), a = Math.abs(t);
+    const [lo, hi] = [[46, 100, 176], [208, 96, 28]], c = t < 0 ? lo : hi, mid = [245, 245, 245];
+    return `rgb(${mid.map((q, i) => Math.round(q + (c[i] - q) * a)).join(",")})`; };
+
+  // n×m grid of values; mode "img" (0..1 gray), "div" (signed, blue/orange) or "plain"
+  function grid(vals, x, y, cell, mode = "img", o = {}){
+    const rows = vals.length, cols = vals[0].length, m = o.max || Math.max(1e-9, ...vals.flat().map(Math.abs));
+    let s = "";
+    vals.forEach((row, i) => row.forEach((v, j) => {
+      const fill = mode === "img" ? gray(v) : mode === "div" ? div(v, m) : (o.hl && o.hl(i, j)) || "var(--surface)";
+      s += rect(x + j * cell, y + i * cell, cell, cell, fill, {stroke: mode === "plain" ? "var(--muted)" : "var(--line)", sw: .6});
+      if (o.nums){ const dark = mode === "img" ? v < .55 : false;
+        const fill = mode === "plain" ? "var(--fg)" : dark ? "#fff" : "#1b2130";
+        s += txt(x + j * cell + cell / 2, y + i * cell + cell / 2 + 3.5, o.fmt ? o.fmt(v) : r1(v), {size: o.fs || 9, fill}); }
+    }));
+    return s + rect(x, y, cols * cell, rows * cell, "none", {stroke: "var(--muted)", sw: 1});
+  }
+
+  function conv(img, k){
+    const n = img.length, out = [];
+    for (let i = 0; i < n - 2; i++){ out.push([]); for (let j = 0; j < n - 2; j++){ let s = 0;
+      for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) s += img[i + a][j + b] * k[a * 3 + b]; out[i].push(s); } }
+    return out;
+  }
+
+  const IMG = {
+    vstep: Array.from({length: 7}, () => [0, 0, 0, 1, 1, 1, 1].map(v => .15 + .7 * v)),
+    hstep: Array.from({length: 7}, (_, i) => Array(7).fill(i < 3 ? .15 : .85)),
+    square: Array.from({length: 7}, (_, i) => Array.from({length: 7}, (_, j) => i > 1 && i < 5 && j > 1 && j < 5 ? .85 : .15)),
+    noisy: [[.2,.8,.3,.7,.2,.9,.3],[.7,.2,.8,.3,.8,.2,.7],[.3,.9,.2,.8,.3,.7,.2],[.8,.3,.7,.2,.9,.3,.8],[.2,.7,.3,.8,.2,.8,.3],[.9,.2,.8,.3,.7,.2,.7],[.3,.8,.2,.7,.3,.9,.2]],
+    blob: [[.2,.2,.25,.3,.25,.2,.2],[.2,.3,.45,.55,.45,.3,.2],[.25,.45,.65,.75,.65,.45,.25],[.3,.55,.75,.85,.75,.55,.3],[.25,.45,.65,.75,.65,.45,.25],[.2,.3,.45,.55,.45,.3,.2],[.2,.2,.25,.3,.25,.2,.2]],
+  };
+
+  // input ⊛ kernel = output, computed for real on a 7×7 toy image
+  function kernelDemo(img, k, labels = ["toy input", "kernel", "output"]){
+    const out = conv(img, k), K = [k.slice(0, 3), k.slice(3, 6), k.slice(6, 9)];
+    const c = 13, kc = 20, oc = 15;
+    return svg(340, 128,
+      grid(img, 4, 18, c) + txt(4 + 3.5 * c, 12, labels[0], {sans: true, size: 10, fill: "var(--muted)"}) +
+      txt(108, 66, "⊛", {size: 18}) +
+      grid(K, 124, 34, kc, "div", {nums: true, fmt: v => +r1(v), fs: 8.5}) + txt(124 + 1.5 * kc, 28, labels[1], {sans: true, size: 10, fill: "var(--muted)"}) +
+      txt(206, 66, "=", {size: 18}) +
+      grid(out, 222, 26, oc, "div") + txt(222 + 2.5 * oc, 20, labels[2], {sans: true, size: 10, fill: "var(--muted)"}) +
+      txt(222 + 2.5 * oc, 118, "blue −  ·  orange +", {sans: true, size: 9, fill: "var(--muted)"}));
+  }
+
+  function relu(on = true){
+    const X = v => 40 + (v + 2) * 50, Y = v => 110 - (v + 2) * 25;
+    return svg(260, 130,
+      `<line x1="${X(-2)}" y1="${Y(0)}" x2="${X(2)}" y2="${Y(0)}" style="stroke:var(--muted)"/><line x1="${X(0)}" y1="${Y(-2)}" x2="${X(0)}" y2="${Y(2)}" style="stroke:var(--muted)"/>` +
+      `<line x1="${X(-2)}" y1="${Y(-2)}" x2="${X(2)}" y2="${Y(2)}" style="stroke:var(--muted);stroke-dasharray:4 3"/>` +
+      (on ? `<polyline points="${X(-2)},${Y(0)} ${X(0)},${Y(0)} ${X(2)},${Y(2)}" style="fill:none;stroke:${POS};stroke-width:3"/>` : "") +
+      txt(X(2) - 4, Y(2) + 14, "no activation: y = x", {anchor: "end", sans: true, size: 10, fill: "var(--muted)"}) +
+      (on ? txt(X(-2) + 2, Y(0) - 6, "ReLU: y = max(0, x)", {anchor: "start", sans: true, size: 10, fill: POS, bold: true}) : "") +
+      txt(X(2) + 6, Y(0) + 4, "x", {anchor: "start", sans: true}) + txt(X(0), Y(2) - 4, "y", {sans: true}));
+  }
+
+  function pool(kind){
+    const v = [[1, 3, 2, 0], [5, 2, 1, 1], [0, 1, 4, 6], [2, 2, 3, 1]];
+    const f = kind === "avg" ? a => a.reduce((s, q) => s + q, 0) / 4 : a => Math.max(...a);
+    const out = [[0, 0], [0, 0]];
+    for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) out[i][j] = f([v[2*i][2*j], v[2*i][2*j+1], v[2*i+1][2*j], v[2*i+1][2*j+1]]);
+    const shade = ["var(--surface)", "var(--line)"], hl = (i, j) => shade[(Math.floor(i / 2) + Math.floor(j / 2)) % 2];
+    return svg(300, 110, grid(v, 20, 10, 22, "plain", {nums: true, hl, fmt: q => q, fs: 11}) + txt(150, 60, "→", {size: 20}) +
+      grid(out, 190, 32, 22, "plain", {nums: true, hl: () => "var(--surface)", fmt: q => +r1(q), fs: 11}) +
+      txt(64, 106, "4 × 4 map", {sans: true, size: 10, fill: "var(--muted)"}) + txt(212, 106, kind === "avg" ? "average of each 2 × 2" : "largest in each 2 × 2", {sans: true, size: 10, fill: "var(--muted)"}));
+  }
+
+  function padding(p){
+    const n = 5, c = 18, tot = n + 2 * p, out = tot - 2;
+    let s = "";
+    for (let i = 0; i < tot; i++) for (let j = 0; j < tot; j++){
+      const pad = i < p || j < p || i >= p + n || j >= p + n;
+      s += rect(10 + j * c, 14 + i * c, c, c, pad ? "var(--surface)" : gray(.35 + .1 * ((i + j) % 3)), {stroke: "var(--line)", sw: .6});
+      if (pad) s += txt(10 + j * c + c / 2, 14 + i * c + c / 2 + 3.5, "0", {size: 9, fill: "var(--muted)"});
+    }
+    s += rect(10, 14, 3 * c, 3 * c, "none", {stroke: "#e0a800", sw: 2.5});
+    const ox = 40 + tot * c;
+    let o = "";
+    for (let i = 0; i < out; i++) for (let j = 0; j < out; j++) o += rect(ox + j * c, 14 + i * c, c, c, "var(--tint)", {stroke: "var(--accent)", sw: .6});
+    return svg(ox + out * c + 20, 14 + tot * c + 22, s + o + txt(10 + tot * c / 2, 10, `${n} × ${n} input${p ? ", padded" : ""}`, {sans: true, size: 10, fill: "var(--muted)"}) +
+      txt(ox + out * c / 2, 10, `${out} × ${out} output`, {sans: true, size: 10, fill: "var(--accent)", bold: true}) +
+      txt(ox - 14, 14 + tot * c / 2, "→", {size: 16}));
+  }
+
+  function stride(st){
+    const n = 9, c = 22, cols = ["#e0a800", POS, NEG, "var(--ok,#2f7a57)"];
+    let s = "";
+    for (let j = 0; j < n; j++) s += rect(10 + j * c, 40, c, c, gray(.3 + .05 * (j % 4)), {stroke: "var(--line)"});
+    let k = 0;
+    for (let x = 0; x + 3 <= n; x += st, k++){
+      const col = cols[k % cols.length];
+      s += `<path d="M${10 + x * c + 2} ${36 - k * 7} h${3 * c - 4}" style="stroke:${col};stroke-width:3"/>`;
+    }
+    const outN = Math.floor((n - 3) / st) + 1;
+    return svg(10 + n * c + 10, 82, s + txt(10 + n * c / 2, 78, `stride ${st}: ${outN} outputs from 9 pixels`, {sans: true, size: 10, fill: "var(--muted)"}));
+  }
+
+  function kernelSizes(){
+    let s = "", x = 10;
+    for (const k of [3, 5, 7]){ const c = 10;
+      s += grid(Array.from({length: k}, () => Array(k).fill(0)), x, 18, c, "plain", {hl: () => "var(--surface)"});
+      s += txt(x + k * c / 2, 14, `${k} × ${k}`, {sans: true, bold: true}) + txt(x + k * c / 2, 18 + k * c + 14, `${k * k} weights`, {sans: true, size: 10, fill: "var(--muted)"});
+      x += k * c + 34; }
+    return svg(x, 110, s);
+  }
+
+  // feature-map size per block, as shrinking squares
+  function blocks(active = 5, pooling = true){
+    const sizes = [224, 112, 56, 28, 14, 7];
+    let s = "", x = 6;
+    sizes.forEach((sz, i) => { if (i > active) return; const side = 8 + (pooling ? sz : 224) / 224 * 70;
+      s += rect(x, 90 - side, side, side, i === active ? "var(--accent)" : "var(--tint)", {stroke: "var(--accent)", sw: .8, rx: 2});
+      s += txt(x + side / 2, 104, pooling ? sz : 224, {size: 10}); x += side + 10; });
+    return svg(Math.max(x, 200), 112, s);
+  }
+
+  function rf(sizes = [[3, "1 conv"], [5, "2 convs"], [10, "+ pool"], [268, "VGG19 end"]]){
+    const P = 150, sc = P / 224;
+    let s = rect(10, 10, P, P, gray(.45), {rx: 2}) + `<ellipse cx="${10 + P * .55}" cy="${10 + P * .5}" rx="${P * .28}" ry="${P * .24}" style="fill:${gray(.85)}"/>`;
+    const cols = ["#ffd400", "#ffb000", POS, "var(--accent)"];
+    sizes.forEach(([px, lab], i) => { const side = Math.min(px, 224) * sc * (px < 20 ? 3 : 1);
+      s += rect(10 + P / 2 - side / 2, 10 + P / 2 - side / 2, side, side, "none", {stroke: cols[i], sw: 2.5});
+      s += rect(175, 18 + i * 20, 10, 10, cols[i]) + txt(190, 27 + i * 20, `${lab}: ${px} px`, {anchor: "start", sans: true, size: 10}); });
+    return svg(300, 170, s + txt(85, 168, "224 × 224 patch", {sans: true, size: 10, fill: "var(--muted)"}));
+  }
+
+  // labeled boxes joined by arrows: [[label, sub], ...]
+  function chain(items, w = 360){
+    const n = items.length, gap = 14, bw = (w - 10 - gap * (n - 1)) / n;
+    let s = "";
+    items.forEach(([lab, sub, hot], i) => { const x = 5 + i * (bw + gap);
+      s += rect(x, 14, bw, 46, hot ? "var(--accent)" : "var(--surface)", {stroke: "var(--accent)", rx: 6});
+      s += txt(x + bw / 2, 34, lab, {sans: true, bold: true, size: 11, fill: hot ? "var(--surface)" : "var(--fg)"});
+      if (sub) s += txt(x + bw / 2, 50, sub, {size: 9.5, fill: hot ? "var(--surface)" : "var(--muted)"});
+      if (i < n - 1) s += txt(x + bw + gap / 2, 41, "→", {size: 13, fill: "var(--muted)"}); });
+    return svg(w, 70, s);
+  }
+
+  function bars(rows, max = 100, unit = "%"){ // rows: [label, value, color]
+    let s = "";
+    rows.forEach(([lab, v, col], i) => { const y = 8 + i * 26;
+      s += txt(110, y + 13, lab, {anchor: "end", sans: true, size: 10.5});
+      s += rect(116, y, 170, 18, "var(--surface)", {rx: 3}) + rect(116, y, 170 * v / max, 18, col || "var(--accent)", {rx: 3});
+      s += txt(120 + 170 * v / max, y + 13, v + unit, {anchor: "start", size: 10}); });
+    return svg(330, 12 + rows.length * 26, s);
+  }
+
+  // a mass-like blob with a heat spot; o: {spot:[x,y], outline:true, cover:[x,y,s], label}
+  function heat(o = {}){
+    const W = 120;
+    let s = rect(0, 0, W, W, gray(.42), {rx: 4}) + `<ellipse cx="62" cy="60" rx="34" ry="30" style="fill:${gray(.82)}"/>`;
+    if (o.spot) s += `<radialGradient id="hg${o.id || 0}"><stop offset="0" stop-color="#fcff9c"/><stop offset=".45" stop-color="#f98e09" stop-opacity=".85"/><stop offset="1" stop-color="#57106e" stop-opacity="0"/></radialGradient>` +
+      `<circle cx="${o.spot[0]}" cy="${o.spot[1]}" r="${o.r || 22}" style="fill:url(#hg${o.id || 0})"/>`;
+    if (o.outline !== false) s += `<ellipse cx="62" cy="60" rx="35" ry="31" style="fill:none;stroke:#33e0ff;stroke-width:2"/>`;
+    if (o.cover) s += rect(o.cover[0], o.cover[1], o.cover[2], o.cover[2], "rgb(128,128,128)", {stroke: "#ffd400", sw: 2});
+    return s;
+  }
+  function panels(list, cap = []){ // list of heat() bodies side by side
+    let s = "";
+    list.forEach((b, i) => { s += `<g transform="translate(${i * 135 + 4},4)">${b}</g>` + (cap[i] ? txt(i * 135 + 64, 140, cap[i], {sans: true, size: 10.5}) : ""); });
+    return svg(list.length * 135, cap.length ? 148 : 128, s);
+  }
+
+  function confusion(pos = "mass", neg = "normal"){
+    const c = (x, y, t, sub, bad) => rect(x, y, 96, 44, bad ? "var(--warn-bg,#fbeee5)" : "var(--ok-bg,#e4f2ea)", {rx: 4}) +
+      txt(x + 48, y + 20, t, {bold: true, size: 12, fill: bad ? "var(--warn,#b5541b)" : "var(--ok,#2f7a57)"}) + txt(x + 48, y + 35, sub, {sans: true, size: 9.5});
+    return svg(320, 120, txt(166, 12, `model says ${pos}`, {sans: true, size: 10, fill: "var(--muted)"}) + txt(268, 12, `says no ${pos}`, {sans: true, size: 10, fill: "var(--muted)"}) +
+      txt(108, 46, `truly ${pos}`, {sans: true, size: 10, anchor: "end"}) + txt(108, 96, `truly ${neg}`, {sans: true, size: 10, anchor: "end"}) +
+      c(118, 20, "TP", "caught", false) + c(220, 20, "FN", "missed", true) + c(118, 70, "FP", "false alarm", true) + c(220, 70, "TN", "cleared", false));
+  }
+
+  function roc(){
+    const X = v => 30 + v * 150, Y = v => 160 - v * 150;
+    return svg(230, 180, `<line x1="${X(0)}" y1="${Y(0)}" x2="${X(1)}" y2="${Y(0)}" style="stroke:var(--muted)"/><line x1="${X(0)}" y1="${Y(0)}" x2="${X(0)}" y2="${Y(1)}" style="stroke:var(--muted)"/>` +
+      `<line x1="${X(0)}" y1="${Y(0)}" x2="${X(1)}" y2="${Y(1)}" style="stroke:var(--muted);stroke-dasharray:4 3"/>` +
+      `<path d="M${X(0)} ${Y(0)} C ${X(.02)} ${Y(.75)}, ${X(.15)} ${Y(.95)}, ${X(1)} ${Y(1)} L ${X(1)} ${Y(0)} Z" style="fill:var(--accent);opacity:.18"/>` +
+      `<path d="M${X(0)} ${Y(0)} C ${X(.02)} ${Y(.75)}, ${X(.15)} ${Y(.95)}, ${X(1)} ${Y(1)}" style="fill:none;stroke:var(--accent);stroke-width:2.5"/>` +
+      txt(X(.55), Y(.35), "AUC = shaded area", {sans: true, size: 10, fill: "var(--accent)", bold: true}) + txt(X(.7), Y(.62), "chance (0.5)", {sans: true, size: 9.5, fill: "var(--muted)"}) +
+      txt(X(.5), 176, "false-alarm rate", {sans: true, size: 10}) + `<text transform="translate(14 ${Y(.5)}) rotate(-90)" text-anchor="middle" style="fill:var(--fg);font-size:10px;font-family:var(--body,sans-serif)">masses caught</text>`);
+  }
+
+  // Grad-CAM color bar as drawn on the page: signed (ReLU off) or positive only (ReLU on)
+  function ramp(signed){
+    const stops = ["rgb(0,0,4)", "rgb(87,16,110)", "rgb(188,55,84)", "rgb(249,142,9)", "rgb(252,255,164)"];
+    const g = `<linearGradient id="rampg"><stop offset="0" stop-color="${stops[0]}"/><stop offset=".25" stop-color="${stops[1]}"/><stop offset=".5" stop-color="${stops[2]}"/><stop offset=".75" stop-color="${stops[3]}"/><stop offset="1" stop-color="${stops[4]}"/></linearGradient>`;
+    return svg(320, 62, g + rect(10, 10, 300, 18, "url(#rampg)", {rx: 3}) +
+      (signed ? txt(10, 44, "most against", {anchor: "start", sans: true, size: 10}) + txt(160, 44, "0", {sans: true, size: 10}) + txt(310, 44, "most for the class", {anchor: "end", sans: true, size: 10})
+              : txt(10, 44, "0 (no evidence, or negative)", {anchor: "start", sans: true, size: 10}) + txt(310, 44, "most evidence", {anchor: "end", sans: true, size: 10})) +
+      txt(160, 58, signed ? "ReLU off: negative evidence stays visible" : "ReLU on: negative values become 0", {sans: true, size: 9.5, fill: "var(--muted)"}));
+  }
+
+  // two score distributions (negatives dashed, positives solid) and a threshold; shift moves the positives left
+  function dist(thr = .5, o = {}){
+    const X = v => 20 + v * 280, H = 70, base = 92, sh = o.shift || 0;
+    const curve = (mu, sd) => Array.from({length: 61}, (_, i) => { const v = i / 60; return [X(v), base - H * Math.exp(-((v - mu) ** 2) / (2 * sd * sd))]; });
+    const path = pts => "M" + pts.map(p => p.map(n => n.toFixed(1)).join(" ")).join(" L");
+    const neg = curve(.3, .11), pos = curve(.68 - sh, .12);
+    const fillPos = path([[X(0), base], ...pos.filter(p => p[0] <= X(thr)), [X(thr), base]]) + " Z";
+    const fillNeg = path([[X(thr), base], ...neg.filter(p => p[0] >= X(thr)), [X(1), base]]) + " Z";
+    return svg(320, 122, `<path d="${fillPos}" style="fill:${o.missCol || "var(--neg,#2e64b0)"};opacity:.35"/><path d="${fillNeg}" style="fill:${POS};opacity:.3"/>` +
+      `<path d="${path(neg)}" style="fill:none;stroke:var(--muted);stroke-width:1.6;stroke-dasharray:4 3"/><path d="${path(pos)}" style="fill:none;stroke:var(--fg);stroke-width:1.8"/>` +
+      `<line x1="${X(thr)}" y1="8" x2="${X(thr)}" y2="${base}" style="stroke:var(--cmu,#a6192e);stroke-width:2"/>` +
+      txt(X(thr) + 4, 16, `threshold ${thr}`, {anchor: "start", sans: true, size: 9.5, fill: "var(--cmu,#a6192e)"}) +
+      `<line x1="${X(0)}" y1="${base}" x2="${X(1)}" y2="${base}" style="stroke:var(--muted)"/>` +
+      txt(X(.5), 106, "model score 0 → 1", {sans: true, size: 9.5, fill: "var(--muted)"}) +
+      txt(X(0), 120, `${o.negLab || "benign"} (dashed) · ${o.posLab || "melanoma"} (solid) · shaded: misses and false alarms`, {anchor: "start", sans: true, size: 9, fill: "var(--muted)"}));
+  }
+
+  return {dist, ramp, POS, NEG, svg, txt, rect, grid, IMG, kernelDemo, relu, pool, padding, stride, kernelSizes, blocks, rf, chain, bars, heat, panels, confusion, roc, gray};
+})();
+</script>
 <script>
 // Synthetic melanoma-app model for Workshop 3. Every patient and score is generated here;
 // nothing comes from real data. Same settings always give the same population.
@@ -753,6 +1091,130 @@ $("resetBtn").addEventListener("click", () => {
 const saved = restore();
 if (saved) Object.assign(S, saved);
 render();
+</script>
+<script>/* Workshop 3 concept help.
+   The challenge hides who the app will miss until the team deploys, so every topic in the PRE-REVEAL block
+   explains the concept only; page.test.mjs checks that block never mentions skin tone, bias or fairness.
+   Topics that name the outcome live in the POST-REVEAL block and sit on the reveal and receipt sections. */
+(() => {
+  const {svg, txt, rect, chain} = Fig;
+  // a lesion drawn as an irregular blob; t: SVG transform applied around its center
+  const lesion = (cx, cy, s = 1, t = "", o = {}) =>
+    `<g transform="translate(${cx} ${cy}) ${t} scale(${s})"><path d="M-14 -4 C-16 -16 -2 -20 8 -14 C18 -9 20 4 12 12 C4 20 -10 18 -14 8 C-17 3 -13 0 -14 -4 Z" style="fill:${o.fill || "#6b4130"};${o.blur ? "filter:url(#blur)" : ""}"/>` +
+    `<circle cx="4" cy="-4" r="4" style="fill:#3a2016;${o.blur ? "filter:url(#blur)" : ""}"/></g>`;
+  const tile = (x, y, w, h, fill) => rect(x, y, w, h, fill || "#e8c4a8", {rx: 6});
+  const BLUR = `<filter id="blur"><feGaussianBlur stdDeviation="2.6"/></filter>`;
+
+  /* ---------------- PRE-REVEAL ---------------- */
+  const frozen = (label) => chain([["photo", ""], [label, "frozen"], ["features", ""], ["classifier", "trained", true]]);
+  const MODEL = [
+    {title: "VGG19, frozen features (the case study)", text: "Use VGG19 exactly as trained on everyday photos, without changing any of its weights, and train only a small classifier on the features it produces. Cheap and stable, but the features were never tuned for moles and lesions.",
+      fig: () => frozen("VGG19")},
+    {title: "ResNet-50, fine-tune the last block", text: "ResNet-50 is a deeper CNN with shortcut connections that make deep networks easier to train. Fine-tuning the last block lets its most specific features adapt to lesions; earlier blocks (edges, textures) stay frozen.",
+      fig: () => chain([["photo", ""], ["blocks 1–3", "frozen"], ["block 4", "trained", true], ["classifier", "trained", true]])},
+    {title: "ResNet-50, all layers, flips", text: ["Train every layer on your photos. Flips are data augmentation: each training photo is also shown mirrored, so the model learns that a lesion’s orientation doesn’t matter."],
+      fig: () => augFig(["original", "flipped"])},
+    {title: "EfficientNet-B0, flips + rotations", text: "EfficientNet scales a CNN’s depth, width and input size together, getting more accuracy per parameter. Rotations add more augmentation: the same lesion seen at many angles.",
+      fig: () => augFig(["original", "flipped", "rotated"])},
+    {title: "EfficientNet-B0 at 384 px", text: "The same model on larger input photos: 384 × 384 instead of 224 × 224 pixels, nearly 3× the pixels. Fine detail at the lesion’s border survives, at more compute.",
+      fig: () => resFig()},
+  ];
+  function augFig(kinds){
+    const T = {original: "", flipped: "scale(-1 1)", rotated: "rotate(70)"};
+    return svg(kinds.length * 100, 112, kinds.map((k, i) => tile(8 + i * 100, 6, 84, 84) + lesion(50 + i * 100, 48, 1.5, T[k]) +
+      txt(50 + i * 100, 106, k, {sans: true, size: 10.5})).join(""));
+  }
+  function resFig(){
+    const panel = (x, n, lab) => { let s = tile(x, 6, 96, 96) + lesion(x + 48, 54, 1.6); const c = 96 / n;
+      for (let k = 1; k < n; k++) s += `<path d="M${x + k * c} 6 v96 M${x} ${6 + k * c} h96" style="stroke:#fff;stroke-width:.6;opacity:.6"/>`;
+      return s + txt(x + 48, 118, lab, {sans: true, size: 10.5}); };
+    return svg(240, 124, panel(8, 9, "224 px") + panel(132, 16, "384 px: finer grid"));
+  }
+  Help.add("#model button.lvl", el => MODEL[[...el.parentElement.parentElement.querySelectorAll("button.lvl")].indexOf(el)]);
+
+  const TUNE = [
+    {title: "Default settings, 5 epochs", text: "An epoch is one pass over all your training photos. Five passes with the default learning rate: fast, but the model may stop before it has learned all it can.", fig: () => lossFig(5)},
+    {title: "Learning-rate search, 20 epochs", text: "The learning rate sets how big a step each weight takes per update. Too big and training jumps around; too small and it crawls. This tries a few rates, keeps the one with the best validation score, and trains longer.", fig: () => lossFig(20)},
+    {title: "Full hyperparameter search, 50 epochs", text: "Also searches batch size, weight decay and augmentation strength, and trains longest. Each setting is judged on validation photos the model doesn’t train on, so the search doesn’t just reward memorizing.", fig: () => lossFig(50)},
+  ];
+  function lossFig(ep){
+    const X = e => 30 + e / 50 * 270, Y = v => 100 - v * 85;
+    const tr = Array.from({length: 51}, (_, e) => [X(e), Y(.85 * Math.exp(-e / 9) + .05)]);
+    const va = Array.from({length: 51}, (_, e) => [X(e), Y(.8 * Math.exp(-e / 10) + .16 + .0025 * Math.max(0, e - 30))]);
+    const p = pts => "M" + pts.map(q => q.map(n => n.toFixed(1)).join(" ")).join(" L");
+    return svg(320, 122, `<path d="${p(tr)}" style="fill:none;stroke:var(--muted);stroke-width:2"/><path d="${p(va)}" style="fill:none;stroke:var(--accent);stroke-width:2.2"/>` +
+      `<line x1="${X(ep)}" y1="10" x2="${X(ep)}" y2="100" style="stroke:var(--cmu,#a6192e);stroke-width:2;stroke-dasharray:4 3"/>` +
+      txt(ep > 40 ? X(ep) - 4 : X(ep) + 4, 18, `stop at ${ep}`, {anchor: ep > 40 ? "end" : "start", sans: true, size: 10, fill: "var(--cmu,#a6192e)"}) +
+      `<line x1="30" y1="100" x2="300" y2="100" style="stroke:var(--muted)"/>` + txt(165, 116, "epochs (0 → 50)", {sans: true, size: 9.5, fill: "var(--muted)"}) +
+      txt(300, 62, "validation error", {anchor: "end", sans: true, size: 9.5, fill: "var(--accent)"}) + txt(300, 86, "training error", {anchor: "end", sans: true, size: 9.5, fill: "var(--muted)"}));
+  }
+  Help.add("#tune button.lvl", el => TUNE[[...el.parentElement.parentElement.querySelectorAll("button.lvl")].indexOf(el)]);
+
+  const dermo = () => svg(240, 112, `<circle cx="56" cy="52" r="46" style="fill:#e8c4a8;stroke:#333;stroke-width:5"/>` + lesion(56, 52, 2) +
+    txt(56, 110, "dermoscopy photo", {sans: true, size: 10}) +
+    rect(148, 4, 62, 96, "#222", {rx: 9}) + `<rect x="153" y="12" width="52" height="80" style="fill:url(#lightg)"/>` +
+    `<linearGradient id="lightg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f2d2b8"/><stop offset="1" stop-color="#a37c62"/></linearGradient>` + lesion(179, 52, .7) +
+    txt(179, 110, "phone photo", {sans: true, size: 10}));
+  const SRC = {
+    "Public archive": {title: "Public archive", text: "A large, free collection of dermoscopy photos gathered from specialist centers and released for research. Dermoscopy uses a magnifying lens and built-in light, so the photos look alike.",
+      take: "Many photos per token."},
+    "University clinic": {title: "University clinic", text: "Dermoscopy photos from a hospital’s dermatology department, each labeled by specialists. Fewer photos per token than the archive."},
+    "Community clinics": {title: "Community clinics", text: "Photos taken with phones at community health clinics. Lighting, distance and focus vary from photo to photo, and they cost more per photo to collect and label."},
+  };
+  Help.add("#sources .src > div:first-child > .name", el => ({...SRC[el.textContent.trim()], fig: dermo}));
+  Help.add(() => document.querySelectorAll("#h-data"), {title: "Training data", text: ["A CNN learns only from the photos it is trained on. Each source gives you a different number and kind of photos per token.",
+    "You need at least 200 photos in total. More photos generally help, but what the photos look like matters too."]});
+
+  const CLEAN = [
+    {title: "No cleaning", text: "Train on every photo you bought, as it is."},
+    {title: "Drop blurry / low-contrast photos", text: "An automatic filter removes photos below a sharpness and contrast cutoff. Sharper training photos are easier to learn from; the dropped photos are gone from training.",
+      fig: () => svg(240, 112, BLUR + tile(8, 6, 92, 84) + lesion(54, 48, 1.6) + tile(132, 6, 92, 84, "#d9b89f") + lesion(178, 48, 1.6, "", {blur: true}) +
+        txt(54, 106, "kept", {sans: true, size: 10.5, fill: "var(--ok,#2f7a57)", bold: true}) + txt(178, 106, "dropped", {sans: true, size: 10.5, fill: "var(--warn,#b5541b)", bold: true}))},
+    {title: "Drop blurry photos and normalize colors", text: "Also shifts every photo’s colors to match the archive’s typical look, so lighting and camera differences shrink.",
+      fig: () => svg(300, 112, [["#f0b8a0", 0], ["#c9d6e8", 1], ["#e8d48a", 2]].map(([c, i]) => tile(6, 4 + i * 34, 52, 30, c) + lesion(32, 19 + i * 34, .7)).join("") +
+        txt(110, 58, "→", {size: 20}) + tile(160, 20, 96, 72) + lesion(208, 56, 1.4) + txt(208, 108, "archive’s colors", {sans: true, size: 10}))},
+  ];
+  Help.add("#clean button.lvl", el => CLEAN[[...el.parentElement.parentElement.querySelectorAll("button.lvl")].indexOf(el)]);
+
+  Help.add("label.check", {title: "Reweight rare image types", text: "The loss is the number training tries to shrink: it adds up a penalty for every training photo the model gets wrong. Reweighting multiplies the penalty for photos of a kind that appears rarely, so the model can’t ignore them to do well on the common kind.",
+    fig: () => Fig.bars([["common type", 90, "var(--muted)"], ["rare type", 10, "var(--accent)"], ["rare, reweighted", 90, "var(--accent)"]], 100, "")});
+  Help.add("#thresholdRule button", el => /sensitivity/i.test(el.textContent)
+    ? {title: "Fixed sensitivity: 90%", text: "Lowers the threshold until 90% of the melanomas in the validation photos are flagged. You catch more melanomas, and more harmless spots get flagged too.",
+      fig: () => Fig.dist(.42)}
+    : {title: "Best accuracy", text: "The app gives each photo a score from 0 to 1 and flags “melanoma” at or above the threshold. This rule picks the threshold that gets the most validation photos right, misses and false alarms counted alike.",
+      fig: () => Fig.dist(.52)});
+
+  Help.add("#h-score", {title: "Validation accuracy", text: "Before shipping, a slice of your own photos is held back from training. Accuracy is the share of those held-out photos the app gets right.",
+    take: "It tells you how well the app does on photos like the ones you trained on.",
+    fig: () => svg(320, 60, rect(10, 10, 240, 24, "var(--muted)", {rx: 3}) + rect(250, 10, 60, 24, "var(--accent)", {rx: 3}) +
+      txt(130, 26, "train on 80%", {sans: true, size: 10.5, fill: "var(--surface)", bold: true}) + txt(280, 26, "validate", {sans: true, size: 10, fill: "var(--surface)", bold: true}) +
+      txt(160, 52, "your photos, split once", {sans: true, size: 10, fill: "var(--muted)"}))});
+  const rates = el => /Sensitivity/.test(el.textContent)
+    ? {title: "Sensitivity", text: "Of the melanomas in the validation photos, the share the app flags. 1 − sensitivity is the share of melanomas missed.", fig: () => Fig.confusion("melanoma", "benign")}
+    : {title: "False alarms", text: "Of the harmless spots in the validation photos, the share the app flags as melanoma anyway. Each one sends someone to a doctor for nothing.", fig: () => Fig.confusion("melanoma", "benign")};
+  Help.add(() => document.querySelectorAll("aside.score .small > span"), rates);
+  Help.add(() => [document.getElementById("tokens")?.parentElement].filter(Boolean),
+    {title: "Token budget", text: "Every team has 60 tokens. Photos, a bigger model, more tuning and cleaning all cost tokens; the loss and threshold choices are free. Spend them where you think they buy the most accuracy."});
+
+  /* ---------------- POST-REVEAL ---------------- */
+  const rd = render;
+  render = function(){ rd(); Help.attach(); };
+  Help.attach();
+
+  Help.add("#reveal h2", {title: "Validation vs. the city", text: ["Your validation photos came from the same sources as your training photos, so they had the same mix of people. In the city, one in three people have darker skin.",
+    "A model can score well on validation and still do badly on a group that was rare in its training data. This is called distribution shift."],
+    fig: () => { // darker-skin share of this team's photos, from its own data choices
+      let n = 0, d = 0;
+      for (const [k, t] of Object.entries(S.cfg.data)){ const m = t * SOURCES[k].perToken; n += m; d += m * SOURCES[k].darker; }
+      return Fig.bars([["your photos", Math.round(100 * d / Math.max(1, n)), "var(--accent)"], ["the city", Math.round(100 * CITY_DARKER), "var(--cmu,#a6192e)"]], 50, "%");
+    }, cap: "Share of photos showing darker skin."});
+  Help.add("#groups h3", {title: "Miss rate by group", text: ["Miss rate: of the melanomas in that group, the share the app called harmless. The same threshold is used for everyone.",
+    "When a group is rare in training, or its photos look different (phone photos, lower contrast on darker skin), its melanomas get lower scores, so more of them fall below the threshold."],
+    fig: () => Fig.dist(.5, {shift: .14, posLab: "melanoma on darker skin"})});
+  Help.add("#receipt h2", {title: "Your receipt", text: "Each row undoes one choice and asks what it did. Left: the validation accuracy that choice bought. Right: how many extra melanomas on darker skin the city app misses because of it.",
+    take: "A choice can raise accuracy and still cost one group protection."});
+  Help.attach();
+})();
 </script>
 
 </body>
