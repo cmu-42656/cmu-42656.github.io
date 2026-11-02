@@ -112,6 +112,25 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .recap dt{color:var(--muted)}
 .recap dd{margin:0}
 .recap .mark{font-family:var(--mono)}
+/* quick round */
+.slots{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;max-width:520px}
+.slots div{aspect-ratio:1;border:1px dashed var(--line);border-radius:6px;display:grid;place-items:center;font:600 1.4rem var(--display);color:var(--muted);overflow:hidden;position:relative}
+.slots img{width:100%;height:100%;object-fit:cover}
+.slots b{position:absolute;inset:auto 0 0;font:600 .7rem var(--mono);background:var(--surface);color:var(--fg);padding:2px 4px;text-align:center}
+.dots{display:flex;gap:6px;align-items:center;font:.78rem var(--mono);color:var(--muted)}
+.dots span{width:28px;height:6px;border-radius:3px;background:var(--grid)}
+.dots span.done{background:var(--ok)} .dots span.cur{background:var(--accent)}
+.timer{display:grid;grid-template-columns:1fr 3.2em;gap:8px;align-items:center}
+.timer .track{height:12px;background:var(--grid);border-radius:6px;overflow:hidden}
+.timer .track i{display:block;height:100%;width:100%;background:var(--accent)}
+.timer.low .track i{background:var(--warn)}
+.timer b{font:600 1rem var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.big2{display:flex;gap:10px;flex-wrap:wrap}
+.big2 button{font-size:1.1rem;font-weight:600;padding:12px 22px;flex:1 1 120px}
+.rcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:14px}
+.rcard{display:grid;gap:6px;align-content:start;padding:10px;border:1px solid var(--line);border-radius:8px;min-width:0}
+.rcard p{font-size:.85rem}
+.rcard .tag{font:500 .72rem var(--mono);color:var(--muted)}
 footer{font-size:.78rem;color:var(--muted);display:grid;gap:4px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -154,7 +173,7 @@ footer{font-size:.78rem;color:var(--muted);display:grid;gap:4px}
   <header>
     <div class="eyebrow">42-656 · CNN applications · Workshop 2 of 3</div>
     <h1>Where is the model looking?</h1>
-    <p class="task">A heatmap claims to show where a model found its evidence. Find out whether that claim holds. At each step, make a guess and lock it, then see what really happened on your patch.</p>
+    <p class="task">First, a quick round: four mammogram patches, no labels, a few seconds each. Call each one, and if you see a mass, mark where a model should look. Then see what the model said, and test whether its heatmap tells the truth.</p>
   </header>
 
   <nav class="recipe" id="recipe" aria-label="Your guesses so far"></nav>
@@ -494,12 +513,15 @@ const caseName = id => { const [, p, side, view] = id.match(/^(P_\d+)_(LEFT|RIGH
 const LAYER_SHAPE = {block3:"56 × 56", block4:"28 × 28", block5:"14 × 14"};
 const BOXES = [[32, "small"], [56, "medium"], [96, "large"]];
 
-const S = {case:null, step:0, locked:new Set(), ans:{}, layer:"block5", roi:true, box:96, hot:null, cold:null, abOcc:false};
+const ROUND = ["P_00429_LEFT_CC_1_normal", "P_01294_RIGHT_MLO_1_mass", "P_00017_LEFT_CC_1_normal", "P_01518_LEFT_CC_1_mass"];
+const SECS = 8; // time to call each patch in the quick round
+const S = {case:null, step:0, locked:new Set(), ans:{}, roi:true, box:96, hot:null, cold:null, abOcc:false, revHeat:true, layer:"block5",
+  r:{started:false, i:0, phase:"call", ans:[]}};
+const youRight = () => ROUND.filter((id, i) => S.r.ans[i] && S.r.ans[i].call === CASES[id].label).length;
+const modelRight = () => ROUND.filter(id => CASES[id].pred === CASES[id].label).length;
 const STEPS = [
-  {key:"patch", name:"Patch", chip: () => S.case ? CASES[S.case].g.title : "pick a patch"},
-  {key:"call", name:"The call", chip: () => `guessed ${S.ans.call === 1 ? "mass" : "normal"}`},
-  {key:"look", name:"Look", chip: () => "spot picked"},
-  {key:"heat", name:"Heatmap", chip: () => ({same:"same spot", close:"close", else:"elsewhere"})[S.ans.heat]},
+  {key:"round", name:"Quick round", chip: () => `you ${youRight()}/4`},
+  {key:"reveal", name:"Reveal", chip: () => S.case ? `testing ${CASES[S.case].g.title.toLowerCase()}` : "reveal"},
   {key:"test", name:"Test", chip: () => ({hot:"hot spot", cold:"cold spot", same:"about the same"})[S.ans.test]},
   {key:"modelA", name:"Model A", chip: () => "A: spot picked"},
   {key:"result", name:"Result", chip: () => S.ans.deploy ? `deploy ${S.ans.deploy}` : "result"},
@@ -538,14 +560,14 @@ function ramp(t){
 const RAMP_CSS = `linear-gradient(90deg, ${STOPS.map(s => `rgb(${s})`).join(",")})`;
 
 // The map that explains the model's own call, for model B ("") or model A ("A/").
-const heatKey = (c, pre, layer = "block5") => pre + c.maps[layer][String(c.pred)].relu;
+const heatKey = (c, pre, layer = "block5", cls = c.pred) => pre + c.maps[layer][String(cls)].relu;
 
 /* Paint a patch, optionally with heat, outline, covers and markers, onto a 448 px canvas. */
 async function paint(cv, c, o = {}){
   if (!cv) return;
   const pre = o.pre || "", size = 448; cv.width = cv.height = size;
   const g = cv.getContext("2d"), out = g.createImageData(size, size);
-  const pd = pixels(await load(pre + c.patch_png), size), hd = o.heat ? pixels(await load(heatKey(c, pre, o.layer)), size) : null;
+  const pd = pixels(await load(pre + c.patch_png), size), hd = o.heat ? pixels(await load(heatKey(c, pre, o.layer, o.cls)), size) : null;
   for (let i = 0; i < size*size; i++){
     const base = pd[i*4];
     if (hd){ const t = hd[i*4] / 255, [r, gg, b] = ramp(t), a = .55 * Math.min(1, t * 1.4);
@@ -574,8 +596,8 @@ async function paint(cv, c, o = {}){
 }
 
 /* ---------- heat geometry and the simulated cover ---------- */
-async function peak(c, pre = ""){
-  const a = await arr(heatKey(c, pre)); let best = 0;
+async function peak(c, pre = "", cls = c.pred){
+  const a = await arr(heatKey(c, pre, "block5", cls)); let best = 0;
   for (let i = 1; i < a.length; i++) if (a[i] > a[best]) best = i;
   return [best % N, Math.floor(best / N)];
 }
@@ -635,52 +657,45 @@ const boxButtons = () => `<div class="ctl"><span class="lab">Cover size</span><d
 
 /* ---------- steps ---------- */
 const VIEWS = {
-  patch(){
-    const c = S.case && CASES[S.case];
-    const gal = GROUPS.map(g => `<div class="grp"><h3><i style="background:${g.color}"></i>${g.title}</h3><p class="note">${g.blurb}</p>
-      <div class="thumbs">${g.items.map(id => `<button data-case="${id}" class="${S.case === id ? "on" : ""}" aria-pressed="${S.case === id}" aria-label="${g.title}: ${caseName(id)}"><img src="${DATA.files[CASES[id].patch_png]}" alt=""></button>`).join("")}</div></div>`).join("");
-    const picked = c ? `<div class="cols">${canvas("cBig", "Your patch", "224 × 224")}
-      <div class="side"><h3>${c.g.title} · ${caseName(c.id)}</h3>
-        <p>Truth: <b>${c.label ? "mass" : "normal tissue"}</b>${c.label ? ", outlined by a radiologist" : ", no finding"}.</p>
-        <p class="note">Model B never saw this patch while training. The next steps ask what it does with it.</p></div></div>`
-      : `<p class="why">Pick one patch. The hard-to-see masses and the busy normal are the interesting ones.</p>`;
-    return head("Pick a patch", "Each is a 224 × 224 square from a real mammogram in the test set (CBIS-DDSM).")
-      + `<div class="gallery">${gal}</div>${picked}`
-      + takeRow(c ? "Model B is a VGG19 fine-tuned to tell mass from normal patches. Test AUC 0.967." : "Pick a patch to continue.", !!c);
+  round(){
+    const R = S.r;
+    if (!R.started) return head("Quick round: mass or no mass?", `Four patches from real mammograms, no labels. You get ${SECS} seconds to call each one. If you say “mass”, click where a model should look.`)
+      + `<div class="slots">${ROUND.map((_, i) => `<div>${i + 1}</div>`).join("")}</div>`
+      + `<div class="take"><p>Ready? The timer starts as soon as the first patch appears.</p><button class="primary" id="rstart">Start the round</button></div>`;
+    if (R.i >= ROUND.length) return head("Round done", "Here are your four answers. Next: what the model said.")
+      + `<div class="slots">${ROUND.map((id, i) => `<div><img src="${DATA.files[CASES[id].patch_png]}" alt="Patch ${i + 1}"><b>${R.ans[i].call === null ? "no answer" : R.ans[i].call ? "mass" : "no mass"}</b></div>`).join("")}</div>`
+      + takeRow("The model saw the same four patches.", true);
+    const look = R.phase === "look", a = R.ans[R.i];
+    return head(`Patch ${R.i + 1} of ${ROUND.length}`, look ? "You said mass. Click the spot a model should look at." : "Mass or no mass? Decide before the timer runs out.")
+      + `<div class="dots">${ROUND.map((_, i) => `<span class="${i < R.i ? "done" : i === R.i ? "cur" : ""}"></span>`).join("")}<span style="background:none;width:auto">${R.i + 1}/${ROUND.length}</span></div>`
+      + `<div class="cols">${canvas("cR", look ? "Click where the model should look" : "Patch " + (R.i + 1), "224 × 224", look ? "rlook" : "")}<div class="side">
+        ${look ? `<div class="ask"><b class="q">Where should the model look?</b><p class="note">${a.look ? "Marked. Click again to move it." : "Click the patch."}</p></div>
+          <div class="take" style="border:0;padding:0"><p></p><button class="primary" id="rnext" ${a.look ? "" : "disabled"}>${R.i + 1 < ROUND.length ? "Next patch →" : "Finish the round"}</button></div>`
+        : `<div class="timer" id="timer"><span class="track"><i id="timerFill"></i></span><b id="timerTxt">${SECS}.0</b></div>
+          <div class="big2"><button data-r="1">Mass</button><button data-r="0">No mass</button></div>`}
+      </div></div>`;
   },
 
-  call(){
-    const c = CASES[S.case], thr = DATA.threshold;
-    const body = locked() ? `<div class="reveal">${scoreBar("Model B's score", c.score, thr)}
-        <p>${res((S.ans.call === 1) === (c.pred === 1), "You called it.", "Not what you guessed.")} Model B says <b>${call(c.score, thr)}</b>. The truth is <b>${c.label ? "mass" : "normal"}</b>, so the model is ${c.pred === c.label ? "<b>right</b>" : "<b>wrong</b>"} on this patch.</p>
-        <p class="why">${c.pred === c.label ? (c.label ? "A correct call. The next steps check whether it was right for the right reason." : "A correct call. Next: what did the model base it on?") : (c.label ? "A missed mass: a false negative. The next steps look at what the model saw instead." : "A false alarm: a false positive. The next steps look at what fooled it.")}</p></div>` : "";
-    return head("Will model B call it a mass?", `Model B outputs a score from 0 to 1. At ${thr.toFixed(3)} or above it says “mass”.`)
-      + `<div class="cols">${canvas("cBig", "Your patch", c.label ? "truth: mass" : "truth: normal")}<div class="side">
-        ${ask("Your guess: what will model B say?", choice("call", [[1, "mass"], [0, "normal"]]))}${body}</div></div>`
-      + takeRow(locked() ? "Keep the score in mind: the heatmap explains it." : "Pick one, then lock it. You can't change it after you see the answer.", S.ans.call !== undefined);
-  },
-
-  look(){
-    const c = CASES[S.case];
-    return head("Where would you look?", `Model B said <b>${c.pred ? "mass" : "normal"}</b>. Which spot do you think gave it that answer? Click it.`)
-      + `<div class="cols">${canvas("cBig", "Click the spot", "", locked() ? "" : "look")}<div class="side">
-        ${ask("Your guess: the spot model B relies on most", S.ans.look ? `<p>Marked at (${S.ans.look.join(", ")}). ${locked() ? "" : "Click again to move it."}</p>` : `<p class="note">Click the patch.</p>`)}
-        ${locked() ? `<p class="why">Locked. The next step shows the heatmap over your marker.</p>` : ""}</div></div>`
-      + takeRow("A heatmap answers exactly this question. Commit before you see it.", !!S.ans.look);
-  },
-
-  heat(){
-    const c = CASES[S.case], d = S.peak && Math.round(Math.hypot(S.peak[0] - S.ans.look[0], S.peak[1] - S.ans.look[1]));
-    const body = locked() && S.peak ? `<div class="reveal">
-        <p>Your marker is <b>${d} px</b> from the hottest pixel (the patch is 224 px wide). ${d < 25 ? res(S.ans.heat === "same", "Same spot, as you said.", "That counts as the same spot.") : d < 60 ? res(S.ans.heat === "close", "Close, as you said.", "That counts as close.") : res(S.ans.heat === "else", "Somewhere else, as you said.", "That's somewhere else.")}</p>
-        ${c.label ? `<p class="why">The hottest pixel is <b>${S.peakIn ? "inside" : "outside"}</b> the radiologist's outline (cyan). ${S.peakIn ? "The evidence sits on the mass." : "The model's strongest evidence is not on the mass."}</p>` : `<p class="why">There is no mass here. The heat shows the tissue that pushed model B toward “${c.pred ? "mass" : "normal"}”.</p>`}
-        <div class="ctl"><span class="lab">Layer (explore)</span><div class="chips">${["block3", "block4", "block5"].map(l => `<button data-layer="${l}" class="${S.layer === l ? "on" : ""}" aria-pressed="${S.layer === l}">${l} · ${LAYER_SHAPE[l]}</button>`).join("")}</div>
-          <p class="note">Earlier layers have bigger maps, so their heatmaps are sharper but see less of the patch.</p></div>
-        ${c.roi_png ? `<button id="roiBtn" class="${S.roi ? "on" : ""}" aria-pressed="${S.roi}">Show the radiologist's outline</button>` : ""}</div>` : "";
-    return head("The heatmap", `Grad-CAM colors each pixel by how much it pushed model B toward its answer, “${c.pred ? "mass" : "normal"}”.`)
-      + `<div class="cols"><div class="map">${canvas("cBig", locked() ? `Grad-CAM · ${S.layer}` : "Heatmap hidden until you guess", locked() ? LAYER_SHAPE[S.layer] : "")}${locked() ? rampRow(c) : ""}</div><div class="side">
-        ${ask("Your guess: will the heat sit on your marker?", choice("heat", [["same", "same spot"], ["close", "close"], ["else", "somewhere else"]]))}${body}</div></div>`
-      + takeRow(locked() ? "A heatmap is a claim about where the evidence is. Next, test it." : "Guess, lock, and the heatmap appears.", !!S.ans.heat);
+  reveal(){
+    const thr = DATA.threshold, you = youRight(), mb = modelRight();
+    const bar = (l, n, col) => `<div class="hit"><span>${l}</span><span class="track"><i class="fill" style="width:${n / 4 * 100}%;background:${col}"></i></span><b>${n}/4</b></div>`;
+    const cards = ROUND.map((id, i) => {
+      const c = CASES[id], a = S.r.ans[i], v = S.rv && S.rv[id], youOk = a.call === c.label, mOk = c.pred === c.label;
+      const yours = a.call === null ? `<span class="res no">✗ no answer</span> (time ran out)` : `${res(youOk, a.call ? "mass" : "no mass", a.call ? "mass" : "no mass")} · ${(a.ms / 1000).toFixed(1)} s`;
+      const spot = a.look && v && !c.maps.block5["1"].empty ? `<p>Your spot is <b>${v.d} px</b> from the model's hottest “mass” evidence${c.label ? `, which is <b>${v.peakIn ? "inside" : "outside"}</b> the outline` : ""}.</p>` : "";
+      return `<div class="rcard"><div class="cv"><canvas id="cRv${i}"></canvas></div>
+        <h3>${c.g.title}</h3><span class="tag">Truth: ${c.label ? "mass" : "no mass"} · ${caseName(id)}</span>
+        <p>You: ${yours}</p>
+        <p>Model B: ${res(mOk, call(c.score, thr), call(c.score, thr))} · score ${c.score.toFixed(3)}</p>${spot}
+        <button data-dig="${id}" class="${S.case === id ? "on" : ""}" aria-pressed="${S.case === id}">Test this one →</button></div>`;
+    }).join("");
+    return head("How did you and the model do?", "Truth, your answer and model B's call for each patch. The heat shows where model B saw evidence for “mass”; your marker is green, the radiologist's outline is cyan.")
+      + `<div style="display:grid;gap:6px;max-width:520px"><h3>Right calls out of 4</h3>${bar("You", you, "var(--accent)")}${bar("Model B", mb, "var(--muted)")}</div>`
+      + `<div class="chips"><button id="heatTog" class="${S.revHeat ? "on" : ""}" aria-pressed="${S.revHeat}">Show model B's heatmap</button><button id="rreplay">Replay the round</button></div>`
+      + `<div class="ctl"><span class="lab">Heatmap layer</span><div class="chips">${["block3", "block4", "block5"].map(l => `<button data-layer="${l}" class="${S.layer === l ? "on" : ""}" aria-pressed="${S.layer === l}">${l} · ${LAYER_SHAPE[l]}</button>`).join("")}</div>
+        <p class="note">Earlier layers have bigger maps, so their heatmaps are sharper but see less of the patch. The distances below use block5.</p></div>`
+      + `<div class="rcards">${cards}</div>`
+      + `<div class="take"><p>${S.case ? "Next: hide parts of this patch from the model and see whether its score changes." : "Pick one patch to test in the next steps."}</p>${S.case ? `<button class="primary" id="next">Continue → Test</button>` : ""}</div>`;
   },
 
   test(){
@@ -728,12 +743,12 @@ const VIEWS = {
       <div class="kpis">${kpi("Test AUC", mA.auc.toFixed(3), mB.auc.toFixed(3))}${kpi("Sensitivity", pct(mA.sensitivity), pct(mB.sensitivity))}${kpi("Specificity", pct(mA.specificity), pct(mB.specificity))}</div>
       <p class="why">${S.ans.deploy === "B" ? "Model B is the safer choice." : "Look again at the hit rates."} The AUCs are almost tied, but model A points at the mass on only ${pct(mA.pointing_hit_rate_block5)} of test masses. It learned a shortcut from how the training patches were cut, and a shortcut can fail on a new hospital's images.</p></div>` : "";
     const rows = [
-      ["The call", `you said ${S.ans.call ? "mass" : "normal"}, model B said ${c.pred ? "mass" : "normal"}`, (S.ans.call === 1) === (c.pred === 1)],
-      ["Where it looks", S.peak ? `your marker was ${Math.round(Math.hypot(S.peak[0] - S.ans.look[0], S.peak[1] - S.ans.look[1]))} px from the hot spot` : "", S.peak && Math.hypot(S.peak[0] - S.ans.look[0], S.peak[1] - S.ans.look[1]) < 60],
+      ["Quick round", `you called ${youRight()} of 4 right; model B called ${modelRight()} of 4`, youRight() >= modelRight()],
+      ["Patch tested", `${c.g.title}: model B said ${c.pred ? "mass" : "normal"} (${c.score.toFixed(3)})`, null],
       ["The test", S.hotV !== undefined ? `you said ${({hot:"the hot spot", cold:"the cold spot", same:"about the same"})[S.ans.test]}; hot spot cover: ${c.score.toFixed(3)} → ${S.hotV.toFixed(3)}` : "", S.hotV !== undefined && S.ans.test === S.testTruth],
       ["Model A", S.lookAd !== undefined ? `your marker was ${S.lookAd} px from model A's hot spot` : "", S.lookAd !== undefined && S.lookAd < 60],
     ];
-    return head("Which model would you deploy?", `${c.g.title} · ${caseName(c.id)}. Here is everything you guessed.`)
+    return head("Which model would you deploy?", "Here is everything you guessed.")
       + `<dl class="recap">${rows.map(([k, v, ok]) => `<dt>${k}</dt><dd>${v}</dd><dd class="mark">${ok === null ? "" : ok ? "✓" : "✗"}</dd>`).join("")}</dl>`
       + ask("Your choice: which model goes into the clinic?", choice("deploy", [["A", "model A"], ["B", "model B"]])) + body
       + takeRow(locked() ? "Grad-CAM shows where the evidence came from. It doesn't prove the model is right; covering and checking many patients does." : "Pick one and lock it to see the numbers that decide it.", !!S.ans.deploy);
@@ -750,8 +765,15 @@ const caseA = () => A.cases.find(x => x.id === S.case) || A.cases.find(x => x.id
 /* ---------- numbers the reveals need, then the canvases ---------- */
 async function compute(){
   const key = STEPS[S.step].key, c = S.case && CASES[S.case];
+  if (key === "reveal"){
+    S.rv = {};
+    for (const [i, id] of ROUND.entries()){
+      const x = CASES[id], pk = await peak(x, "", 1), look = S.r.ans[i].look;
+      S.rv[id] = {peakIn: await inRoi(x, pk), d: look ? Math.round(Math.hypot(pk[0] - look[0], pk[1] - look[1])) : null};
+    }
+  }
   if (!c) return;
-  if (key === "heat" && locked()){ S.peak = await peak(c); S.peakIn = await inRoi(c, S.peak); }
+
   if (key === "test"){
     S.hot = S.hot || await spot(c, true); S.cold = S.cold || await spot(c, false);
     S.hotShare = await hidden(c, S.hot); S.coldShare = await hidden(c, S.cold);
@@ -769,15 +791,13 @@ async function compute(){
 }
 function draw(){
   const key = STEPS[S.step].key, c = S.case && CASES[S.case];
+  if (key === "round" && S.r.started && S.r.i < ROUND.length) paint($("cR"), CASES[ROUND[S.r.i]], {marks: [[S.r.ans[S.r.i] && S.r.ans[S.r.i].look, "#5dff9b", "you"]]});
+  if (key === "reveal") ROUND.forEach((id, i) => paint($("cRv" + i), CASES[id], {heat: S.revHeat, cls: 1, layer: S.layer, roi: true, marks: [[S.r.ans[i].look, "#5dff9b", "you"]]}));
   if (!c) return;
-  if (key === "patch") paint($("cBig"), c, {roi: S.roi});
-  if (key === "call") paint($("cBig"), c, {roi: locked()});
-  if (key === "look") paint($("cBig"), c, {marks: [[S.ans.look, "#33e0ff", "you"]]});
-  if (key === "heat") paint($("cBig"), c, {heat: locked(), layer: S.layer, roi: locked() && S.roi, marks: [[S.ans.look, "#33e0ff", "you"], [locked() ? S.peak : null, "#ffffff", "hottest"]]});
   if (key === "test"){ paint($("cHot"), c, {heat: true, cover: S.hot}); paint($("cCold"), c, {heat: true, cover: S.cold}); }
   if (key === "modelA"){
     const ca = caseA(), cb = DATA.cases.find(x => x.id === ca.id), at = locked() && S.abOcc ? S.abAt : null;
-    paint($("cA"), ca, {pre: "A/", heat: locked(), roi: locked(), cover: at, box: 96, marks: [[S.ans.lookA, "#33e0ff", "you"]]});
+    paint($("cA"), ca, {pre: "A/", heat: locked(), roi: locked(), cover: at, box: 96, marks: [[S.ans.lookA, "#5dff9b", "you"]]});
     paint($("cB"), cb, {heat: locked(), roi: locked(), cover: at, box: 96});
   }
 }
@@ -785,9 +805,9 @@ function draw(){
 /* ---------- flow ---------- */
 const canOpen = i => S.locked.has(i) || i === S.step || S.locked.has(i - 1);
 function renderRecipe(){
-  $("recipe").innerHTML = `<span class="lab">Your guesses</span>` + STEPS.map((st, i) => {
+  $("recipe").innerHTML = `<span class="lab">Your answers</span>` + STEPS.map((st, i) => {
     const state = i === S.step ? "cur" : S.locked.has(i) ? "locked" : "future";
-    const txt = S.locked.has(i) ? st.chip() : i === S.step ? `${st.name}: guessing…` : st.name;
+    const txt = S.locked.has(i) ? st.chip() : i === S.step && st.key !== "reveal" ? `${st.name}: guessing…` : st.name;
     return `<button data-go="${i}" class="${state}" ${canOpen(i) ? "" : "disabled"} aria-current="${i === S.step ? "step" : "false"}">${S.locked.has(i) ? LOCK_ICON : ""}${txt}</button>`;
   }).join("");
 }
@@ -801,13 +821,36 @@ async function render(){
   draw();
   window.dispatchEvent(new Event("stepchange"));
 }
+/* quick-round timer: updates the bar in place so the patch canvas isn't repainted */
+let timerId = null;
+function stopTimer(){ clearInterval(timerId); timerId = null; }
+function startTimer(){
+  stopTimer(); S.r.t0 = performance.now();
+  timerId = setInterval(() => {
+    const left = Math.max(0, SECS - (performance.now() - S.r.t0) / 1000);
+    const f = $("timerFill"), tx = $("timerTxt");
+    if (f) f.style.width = (left / SECS * 100) + "%";
+    if (tx) tx.textContent = left.toFixed(1);
+    $("timer")?.classList.toggle("low", left < 3);
+    if (left <= 0){ S.r.ans[S.r.i] = {call: null, ms: SECS * 1000, look: null}; nextPatch(); }
+  }, 100);
+}
+async function nextPatch(){
+  stopTimer(); S.r.i++; S.r.phase = "call";
+  if (S.r.i >= ROUND.length) S.locked.add(0);
+  await render();
+  if (S.r.i < ROUND.length) startTimer();
+}
 async function go(i){
+  stopTimer();
   S.step = i; await render();
   $("stage").scrollIntoView({block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
   const h = $("stage").querySelector("h2"); h?.setAttribute("tabindex", "-1"); h?.focus({preventScroll: true});
 }
-function pickCase(id){
-  Object.assign(S, {case: id, locked: new Set(), ans: {}, layer: "block5", hot: null, cold: null, abOcc: false, peak: null, peakA: null, abV: null});
+function pickCase(id){ // the patch the last three steps test; the round and its reveal stay locked
+  [2, 3, 4].forEach(i => S.locked.delete(i));
+  if (id) S.locked.add(1);
+  Object.assign(S, {case: id, ans: {}, hot: null, cold: null, abOcc: false, peakA: null, abV: null});
   delete S.hotV; delete S.coldV; delete S.lookAd; delete S.abAt;
 }
 
@@ -817,20 +860,25 @@ $("stage").addEventListener("click", async e => {
   if (cv && cv.dataset.hit){
     const r = cv.getBoundingClientRect(), pt = [Math.round((e.clientX - r.left) / r.width * N), Math.round((e.clientY - r.top) / r.height * N)];
     const k = cv.dataset.hit;
-    if (k === "look") S.ans.look = pt;
+    if (k === "rlook"){ S.r.ans[S.r.i].look = pt; render(); return; }
     if (k === "lookA") S.ans.lookA = pt;
     if (k === "hot") S.hot = pt;
     if (k === "cold") S.cold = pt;
     render(); return;
   }
   const b = e.target.closest("button"); if (!b || b.classList.contains("help-q")) return;
-  if (b.id === "lock"){ S.locked.add(S.step); if (S.step === 0) go(1); else render(); return; }
-  if (b.id === "next"){ go(S.step + 1); return; }
-  if (b.id === "again"){ S.case = null; pickCase(null); go(0); return; }
-  if (b.id === "roiBtn"){ S.roi = !S.roi; render(); return; }
-  if (b.id === "abCover"){ S.abOcc = !S.abOcc; render(); return; }
-  if (b.dataset.case){ pickCase(b.dataset.case); render(); return; }
+  if (b.id === "rstart"){ S.r = {started: true, i: 0, phase: "call", ans: []}; await render(); startTimer(); return; }
+  if (b.dataset.r){ const ms = performance.now() - S.r.t0, v = +b.dataset.r; S.r.ans[S.r.i] = {call: v, ms, look: null};
+    if (v){ stopTimer(); S.r.phase = "look"; render(); } else nextPatch(); return; }
+  if (b.id === "rnext"){ nextPatch(); return; }
+  if (b.id === "rreplay"){ stopTimer(); pickCase(null); S.locked = new Set(); S.r = {started: false, i: 0, phase: "call", ans: []}; go(0); return; }
+  if (b.id === "heatTog"){ S.revHeat = !S.revHeat; render(); return; }
   if (b.dataset.layer){ S.layer = b.dataset.layer; render(); return; }
+  if (b.dataset.dig){ pickCase(b.dataset.dig); go(2); return; }
+  if (b.id === "lock"){ S.locked.add(S.step); render(); return; }
+  if (b.id === "next"){ go(S.step + 1); return; }
+  if (b.id === "again"){ pickCase(null); go(1); return; }
+  if (b.id === "abCover"){ S.abOcc = !S.abOcc; render(); return; }
   if (b.dataset.box){ S.box = +b.dataset.box; S.hot = S.cold = null; render(); return; }
   if (b.dataset.ans){ const v = b.dataset.v; S.ans[b.dataset.ans] = /^\d$/.test(v) ? +v : v; render(); }
 });
@@ -845,7 +893,8 @@ render();
     "Plain normal": "Healthy tissue with nothing that stands out. The model should be confident it is normal.",
     "Busy normal": "Healthy, but dense and patchy. Bright blobs like these can look like a mass to a model.",
   };
-  Help.add("#stage .thumbs button[data-case]", el => { const g = el.getAttribute("aria-label").split(":")[0]; return {title: g, text: GROUP[g]}; });
+  Help.add("#stage .rcard h3", el => ({title: el.textContent.trim(), text: GROUP[el.textContent.trim()]}));
+  Help.add("#stage .timer", {title: "Why a timer?", text: "Radiologists read hundreds of images a day, often in seconds each. The timer makes you trust your first impression, the way a model gives one answer per image with no second look."});
 
   const cutoff = {title: "Score and cutoff", text: ["The model outputs a score from 0 to 1. At or above the cutoff it says “mass”; below, “normal.”",
     "Model B's cutoff is high (0.984) because it was chosen to keep false alarms rare. Moving it trades misses for false alarms."],
@@ -870,7 +919,7 @@ render();
     block4: {title: "Block 4 (28 × 28 maps)", text: "A middle layer: half the resolution of block 3, and each feature sees twice as far."},
     block5: {title: "Block 5 (14 × 14 maps)", text: "The last convolutional layer, the usual choice for Grad-CAM. Blurry when stretched to 224 px, but its features see mass-sized shapes."},
   };
-  Help.add("#stage button[data-layer]", el => ({...LAYER[el.dataset.layer], take: "Deeper = coarser, but closer to the decision."}));
+    Help.add("#stage button[data-layer]", el => ({...LAYER[el.dataset.layer], take: "Deeper = coarser, but closer to the decision."}));
   Help.add("#roiBtn", {title: "Mass outline", text: "The cyan line is the radiologist's outline of the mass from CBIS-DDSM. A trustworthy model puts its evidence inside it.",
     fig: () => P([H({spot: [62, 54], id: 5}), H({spot: [60, 112], r: 18, id: 6})], ["heat inside the outline", "heat outside it"])});
 
