@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CNN Workshops · 42-656</title>
+<meta name="description" content="Three hands-on workshops from the 42-656 guest lecture on CNNs in medical imaging. They run in your browser: no install, no login.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23a6192e'/%3E%3Cg fill='%23fff'%3E%3Crect x='6' y='6' width='6' height='6'/%3E%3Crect x='13' y='6' width='6' height='6' opacity='.6'/%3E%3Crect x='20' y='6' width='6' height='6' opacity='.3'/%3E%3Crect x='6' y='13' width='6' height='6' opacity='.6'/%3E%3Crect x='13' y='13' width='6' height='6'/%3E%3Crect x='6' y='20' width='6' height='6' opacity='.3'/%3E%3Crect x='20' y='20' width='6' height='6'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Same tokens as the workshop pages. */
+:root{
+  --bg:#f7f8fa; --surface:#ffffff; --fg:#1b2130; --muted:#4f586a; --line:#d9dde5;
+  --cmu:#a6192e; --accent:#2e5c8a; --tint:#e9f0f7;
+  --display:"Source Serif 4", Georgia, serif; --body:"IBM Plex Sans", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12161d; --surface:#1a2029; --fg:#e6e9ef; --muted:#a7b0bf; --line:#2c3440;
+  --cmu:#ef7d8c; --accent:#8dbbe8; --tint:#1d2a38; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161d; --surface:#1a2029; --fg:#e6e9ef; --muted:#a7b0bf; --line:#2c3440;
+  --cmu:#ef7d8c; --accent:#8dbbe8; --tint:#1d2a38; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);font-size:17px;line-height:1.6}
+.skip{position:absolute;left:-999px;top:8px;background:var(--accent);color:var(--bg);padding:8px 12px;border-radius:6px}
+.skip:focus{left:16px}
+main{max-width:980px;margin:0 auto;padding:40px 16px 64px;display:grid;gap:32px}
+h1,h2{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:clamp(1.9rem,5vw,2.6rem);line-height:1.15}
+h2{font-size:1.35rem;line-height:1.25}
+p{margin:0;max-width:68ch}
+.eyebrow{font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:var(--cmu);font-weight:600}
+.lede{font-size:1.1rem;margin-top:12px}
+.facts{display:flex;flex-wrap:wrap;gap:8px 20px;margin:14px 0 0;padding:0;list-style:none;color:var(--muted);font-size:.95rem}
+.facts li::before{content:"✓ ";color:var(--accent);font-weight:600}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px;list-style:none;margin:0;padding:0}
+.card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px;display:grid;gap:10px;align-content:start}
+.card:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+.card:hover{border-color:var(--accent)}
+.num{font-size:.8rem;font-weight:600;color:var(--cmu);letter-spacing:.06em;text-transform:uppercase}
+.card h2 a{color:var(--fg);text-decoration:none}
+.card h2 a::after{content:"";position:absolute;inset:0;border-radius:10px}
+.card h2 a:focus{outline:none}
+.card dl{margin:4px 0 0;display:grid;gap:6px;font-size:.95rem}
+.card dt{font-weight:600}
+.card dd{margin:0 0 4px;color:var(--muted)}
+.meta{font-size:.9rem;color:var(--muted)}
+.go{font-weight:600;color:var(--accent)}
+section.info{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px;display:grid;gap:10px}
+section.info h2{font-size:1.15rem}
+section.info ul{margin:0;padding-left:1.2em;display:grid;gap:6px}
+footer{font-size:.85rem;color:var(--muted);display:grid;gap:6px}
+a{color:var(--accent)}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<a class="skip" href="#workshops">Skip to the workshops</a>
+<main>
+  <header>
+    <div class="eyebrow">42-656 · Guest lecture · CNNs in medical imaging</div>
+    <h1>Hands-on CNN workshops</h1>
+    <p class="lede">Three short, interactive pages from the lecture. Change a component and watch what it does to the model, test whether a heatmap can be trusted, and build a melanoma app that has to work for everyone.</p>
+    <ul class="facts" aria-label="How the pages work">
+      <li>Runs in your browser</li><li>No install, no login</li><li>Laptop recommended; phones work</li><li>Nothing you do leaves your device</li>
+    </ul>
+  </header>
+
+  <ol class="cards" id="workshops" aria-label="Workshops">
+    <li class="card">
+      <div class="num">Workshop 1 · about 11 min</div>
+      <h2><a href="workshop-1.html">Design your own feature extractor</a></h2>
+      <dl>
+        <dt>You will</dt><dd>Run one filter over a real mammogram patch, then build a CNN from parts: kernel size, padding, ReLU, pooling, depth and the classifier head.</dd>
+        <dt>You will learn</dt><dd>What each component does to the model’s size, what one feature can see, and its accuracy.</dd>
+      </dl>
+      <span class="go" aria-hidden="true">Open workshop 1 →</span>
+    </li>
+    <li class="card">
+      <div class="num">Workshop 2 · about 11 min</div>
+      <h2><a href="workshop-2.html">Where is the model looking?</a></h2>
+      <dl>
+        <dt>You will</dt><dd>Read Grad-CAM heatmaps for a mammogram model, hide parts of the image to test them, and compare two models with the same accuracy.</dd>
+        <dt>You will learn</dt><dd>Why a heatmap shows where the evidence came from, not that the model is right.</dd>
+      </dl>
+      <span class="go" aria-hidden="true">Open workshop 2 →</span>
+    </li>
+    <li class="card">
+      <div class="num">Workshop 3 · teams of 2–3</div>
+      <h2><a href="workshop-3.html">Build the best melanoma app</a></h2>
+      <dl>
+        <dt>You will</dt><dd>Spend a token budget on a CNN, training photos, cleaning and a decision threshold, then deploy your app to a city.</dd>
+        <dt>You will learn</dt><dd>How the training data decides who an accurate model still misses.</dd>
+      </dl>
+      <span class="go" aria-hidden="true">Open workshop 3 →</span>
+    </li>
+  </ol>
+
+  <section class="info" aria-labelledby="good-to-know">
+    <h2 id="good-to-know">Good to know</h2>
+    <ul>
+      <li><b>Real and simulated parts are labeled on each page.</b> Workshop 1’s shapes, parameter counts and receptive fields are exact; its accuracy is a teaching simulation. Workshop 2’s heatmaps and model scores are real; covered-patch scores are simulated. Workshop 3 uses synthetic data.</li>
+      <li><b>After Workshops 1 and 2</b> there is a short Slido quiz on what you saw. Workshop 3 uses Slido polls and a code word from the slides.</li>
+      <li><b>Keyboard and screen readers:</b> every control is a standard button or input you can reach with Tab. Pages follow your system’s light or dark mode.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <span>Mammogram patches: Sawyer-Lee R, Gimenez F, Hoogi A, Rubin D. Curated Breast Imaging Subset of DDSM (CBIS-DDSM). The Cancer Imaging Archive, 2016. doi:10.7937/K9/TCIA.2016.7O02S9CY. CC BY 3.0.</span>
+    <span>Grad-CAM: Selvaraju RR et al., ICCV 2017. VGG19: Simonyan &amp; Zisserman, ICLR 2015.</span>
+    <span>Carnegie Mellon University · Biomedical Engineering.</span>
+  </footer>
+</main>
+</body>
+</html>
