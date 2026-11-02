@@ -3,7 +3,7 @@
 Three interactive pages from the 42-656 guest lecture on CNNs in medical imaging (Carnegie Mellon
 University, Biomedical Engineering). They run in the browser: no install, no login.
 
-**Open them:** https://royshidhartho.github.io/cnn-medical-imaging-workshops/
+**Open them:** https://shidhartho.com/cnn-medical-imaging-workshops/
 
 1. **Design your own feature extractor:** change a CNN's components and see what each one does.
 2. **Where is the model looking?** Test Grad-CAM heatmaps on a mammogram model.
