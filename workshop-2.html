@@ -512,7 +512,10 @@ const caseName = id => { const [, p, side, view] = id.match(/^(P_\d+)_(LEFT|RIGH
 const LAYER_SHAPE = {block3:"56 × 56", block4:"28 × 28", block5:"14 × 14"};
 const TRIES = 3;
 
-const ROUND = ["P_00429_LEFT_CC_1_normal", "P_01294_RIGHT_MLO_1_mass", "P_00017_LEFT_CC_1_normal", "P_01518_LEFT_CC_1_mass"];
+// Each round draws two masses and two normals at random from the pool, in shuffled order.
+const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const drawRound = () => { const two = l => shuffle(Object.keys(CASES).filter(id => CASES[id].label === l)).slice(0, 2); return shuffle(two(1).concat(two(0))); };
+let ROUND = drawRound();
 const SECS = 8; // time to call each patch in the quick round
 const S = {case:null, step:0, locked:new Set(), ans:{}, roi:true, box:96, tries:[], atkHeat:true, revHeat:true, layer:"block5",
   r:{started:false, i:0, phase:"call", ans:[]}};
@@ -830,7 +833,7 @@ $("stage").addEventListener("click", async e => {
   if (b.dataset.r){ const ms = performance.now() - S.r.t0, v = +b.dataset.r; S.r.ans[S.r.i] = {call: v, ms, look: null};
     if (v){ stopTimer(); S.r.phase = "look"; render(); } else nextPatch(); return; }
   if (b.id === "rnext"){ nextPatch(); return; }
-  if (b.id === "rreplay"){ stopTimer(); pickCase(null); S.locked = new Set(); S.r = {started: false, i: 0, phase: "call", ans: []}; go(0); return; }
+  if (b.id === "rreplay"){ stopTimer(); pickCase(null); S.locked = new Set(); ROUND = drawRound(); S.r = {started: false, i: 0, phase: "call", ans: []}; go(0); return; }
   if (b.id === "heatTog"){ S.revHeat = !S.revHeat; render(); return; }
   if (b.dataset.layer){ S.layer = b.dataset.layer; render(); return; }
   if (b.dataset.dig){ pickCase(b.dataset.dig); go(2); return; }
